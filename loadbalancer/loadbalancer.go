@@ -61,7 +61,7 @@ const (
 )
 
 // New creates a new load balancer with the specified configuration
-func New(algorithm string, healthCheckPath string, healthCheckFreq time.Duration, maxRetries int, serverTimeout time.Duration) *LoadBalancer {
+func NewLoadbalancer(algorithm string, healthCheckPath string, healthCheckFreq time.Duration, maxRetries int, serverTimeout time.Duration) *LoadBalancer {
 	lb := &LoadBalancer{
 		backends:        make([]*Backend, 0),
 		current:         0,
