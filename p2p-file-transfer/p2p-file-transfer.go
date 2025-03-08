@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -17,10 +16,10 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p"
-	"github.com/libp2p/go-libp2p-core/host"
-	"github.com/libp2p/go-libp2p-core/network"
-	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/libp2p/go-libp2p-core/protocol"
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -118,7 +117,6 @@ func NewP2PNode(shareDir, downloadDir string) (*P2PNode, error) {
 
 	// Create a new libp2p host
 	h, err := libp2p.New(
-		ctx,
 		libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/0"),
 		libp2p.EnableRelay(),
 	)
@@ -168,7 +166,7 @@ func (n *P2PNode) Start() error {
 
 	// Print node address
 	log.Printf("P2P Node started. Your address: %s/p2p/%s\n",
-		n.Host.Addrs()[0], n.Host.ID().Pretty())
+		n.Host.Addrs()[0], n.Host.ID())
 
 	return nil
 }
@@ -203,7 +201,7 @@ func (n *P2PNode) Connect(addr string) error {
 	// Add peer to discovered peers
 	n.Discovery.addPeer(peerInfo.ID)
 
-	log.Printf("Connected to peer: %s\n", peerInfo.ID.Pretty())
+	log.Printf("Connected to peer: %s\n", peerInfo.ID)
 	return nil
 }
 
@@ -260,7 +258,7 @@ func (n *P2PNode) handleAnnouncement(peerID peer.ID, message string) {
 
 	n.Registry.RemoteFiles[fileInfo.Hash][peerID] = fileInfo
 	log.Printf("Received file announcement from %s: %s (%s)",
-		peerID.Pretty(), fileInfo.Name, fileInfo.Hash)
+		peerID, fileInfo.Name, fileInfo.Hash)
 }
 
 // handleRequest processes file chunk requests
@@ -338,12 +336,16 @@ func (n *P2PNode) handleRequest(s network.Stream, message string) {
 
 // scanLocalFiles scans the share directory and registers files
 func (n *P2PNode) scanLocalFiles() error {
-	files, err := ioutil.ReadDir(n.ShareDir)
+	files, err := os.ReadDir(n.ShareDir)
 	if err != nil {
 		return err
 	}
 
-	for _, fileInfo := range files {
+	for _, file := range files {
+		fileInfo, err := file.Info()
+		if err != nil {
+			log.Fatal(err)
+		}
 		if fileInfo.IsDir() {
 			continue
 		}
@@ -394,7 +396,7 @@ func (n *P2PNode) ListRemoteFiles() map[string][]peer.ID {
 	defer n.Registry.RUnlock()
 
 	files := make(map[string][]peer.ID)
-	for hash, peers := range n.Registry.RemoteFiles {
+	for _, peers := range n.Registry.RemoteFiles {
 		for peerID, fileInfo := range peers {
 			if _, exists := files[fileInfo.Name]; !exists {
 				files[fileInfo.Name] = make([]peer.ID, 0)
@@ -613,11 +615,11 @@ func (n *P2PNode) downloadChunk(ctx context.Context, hash string, index int, pee
 	}
 
 	// Update transfer state
-	state.Lock()
+	n.Transfers.Lock()
 	state.ReceivedMap[index] = true
 	state.Progress++
 	progress := float64(state.Progress) / float64(state.FileInfo.NumChunks) * 100
-	state.Unlock()
+	n.Transfers.Unlock()
 
 	log.Printf("Downloaded chunk %d/%d (%.1f%%) of %s",
 		index+1, state.FileInfo.NumChunks, progress, state.FileInfo.Name)
@@ -647,7 +649,7 @@ func (n *P2PNode) announceFiles() {
 		// Open stream to peer
 		stream, err := n.Host.NewStream(n.ctx, peerID, protocol.ID(protocolID))
 		if err != nil {
-			log.Printf("Failed to open stream to %s: %v", peerID.Pretty(), err)
+			log.Printf("Failed to open stream to %s: %v", peerID, err)
 			continue
 		}
 
@@ -656,7 +658,7 @@ func (n *P2PNode) announceFiles() {
 			announcement := fmt.Sprintf("%s%s|%s|%d|%d\n",
 				announcementPrefix, file.Name, file.Hash, file.Size, file.NumChunks)
 			if _, err := stream.Write([]byte(announcement)); err != nil {
-				log.Printf("Failed to send announcement to %s: %v", peerID.Pretty(), err)
+				log.Printf("Failed to send announcement to %s: %v", peerID, err)
 				break
 			}
 		}
